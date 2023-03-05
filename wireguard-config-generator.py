@@ -9,13 +9,16 @@ import configparser
 ################### Modify your settings here ##################
 
 #Generate config for Mikrotik
-mikrotik_server_config = False
+mikrotik_server_config = True
+
+#Set mikrotik vpn interface for clients
+mikrotik_server_wg_vpn_interface = "wg-vpn-clients-yurov"
 
 #Keep server config, just generate new clients (see ipnet_tunnel_4_start_ip variable), or if false generate server config
-keep_server_config = False
+keep_server_config = True
 
-#First IP address for clients 0 mean first client started at 1
-ipnet_tunnel_4_start_ip = 0
+#First IP address for clients 0 mean first client started at 1 (based on network CIDR)
+ipnet_tunnel_4_start_ip = 10
 
 # Set the listen port
 listen_port = "13242"
@@ -73,20 +76,29 @@ def main():
         if iptables:
             server_config += f"PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -t nat -A POSTROUTING -o {iptables} -j MASQUERADE\n" \
                 f"PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -t nat -D POSTROUTING -o {iptables} -j MASQUERADE\n"
-    #else:
-        # Generate config (the same server.conf file) in mikrotik command format
-
+    # Generate config (the same server.conf file) in mikrotik command format
+    else:
+        server_config = "/interface wireguard peers\n" \
 
     for i in range(1, clients+1):
-        server_config += f"[Peer {i}]\n" \
+        if not mikrotik_server_config:
+          server_config += f"[Peer {i}]\n" \
             f"PublicKey = {wg_pub_keys[i]}\n" \
             f"PresharedKey = {wg_psk[i]}\n" \
-            f"AllowedIPs = {ipnet_tunnel_1}.{ipnet_tunnel_2}.{ipnet_tunnel_3}.{ipnet_tunnel_4+1+i}/32\n"
-
+            f"AllowedIPs = {ipnet_tunnel_1}.{ipnet_tunnel_2}.{ipnet_tunnel_3}.{ipnet_tunnel_4+1+i+ipnet_tunnel_4_start_ip}/32\n"
+        else:
+          server_config += f"add allowed-address={ipnet_tunnel_1}.{ipnet_tunnel_2}.{ipnet_tunnel_3}.{ipnet_tunnel_4+1+i+ipnet_tunnel_4_start_ip}/32 " \
+            f"interface={mikrotik_server_wg_vpn_interface} public-key=\"{wg_pub_keys[i]}\" preshared-key=\"{wg_psk[i]}\" comment=\"[Peer {i}]\"\n"    
+    
+    if mikrotik_server_config:
+        print("*"*10 + f" Server-add-peers {i} " + "*"*10)
+        print(server_config)
+    
     if not keep_server_config:
         print("*"*10 + " Server-Conf " + "*"*10)
         print(server_config)
-        make_qr_code_png(server_config, f"server.png")
+        if not mikrotik_server_config:
+            make_qr_code_png(server_config, f"server.png")
         with open(f"server.conf", "wt") as f:
             f.write(server_config)
     else:
@@ -95,7 +107,7 @@ def main():
         config.read("server.conf")
         privkey = config.get("Interface", "PrivateKey")
         wg_pub_keys[0] = subprocess.check_output(f"echo '{privkey}' | wg pubkey", shell=True).decode("utf-8").strip()
-        print (wg_pub_keys[0])
+        #print (wg_pub_keys[0])
     
 
     ################# Client-Configs ##################
@@ -120,6 +132,9 @@ def main():
 
         client_config += f"Endpoint = {endpoint}\n"
         client_configs.append(client_config)
+
+        #server_config += f"add allowed-address={ipnet_tunnel_1}.{ipnet_tunnel_2}.{ipnet_tunnel_3}.{ipnet_tunnel_4+1}/32 " \
+        #    f"interface={mikrotik_server_wg_vpn_interface} public-key=\"{wg_pub_keys[0]}\" preshared-key=\"{wg_psk[i]}\" comment=\"[Peer {i}]\"\n"  
 
         print("*"*10 + f" Client-Conf {i} " + "*"*10)
         print(client_config)
