@@ -12,40 +12,43 @@ import configparser
 mikrotik_server_config = True
 
 #Set mikrotik vpn interface for clients
-mikrotik_server_wg_vpn_interface = "wg-vpn-clients-yurov"
+mikrotik_server_wg_vpn_interface = "WIREGUARD-IT-STAFF"
 
 #Keep server config, just generate new clients (see ipnet_tunnel_4_start_ip variable), or if false generate server config
-keep_server_config = True
+keep_server_config =  False
+
+#Mark peers
+peer_name = "Admin IT Staff"
 
 #First IP address for clients 0 mean first client started at 1 (based on network CIDR)
-ipnet_tunnel_4_start_ip = 10
+ipnet_tunnel_4_start_ip = 0
 
 # Set the listen port
-listen_port = "13242"
+listen_port = "443"
 
 # Set the endpoint
-endpoint = f"gw.tht.su:{listen_port}"
+endpoint = f"vpn.islg.ru:{listen_port}"
 
 # Number of needed clients
-clients = 10
+clients = 5
 
 # Set preshared_key to True to create preshared keys or False if not needed
 preshared_key = True
 
 # Set your DNS Server like "1.1.1.1" or empty string "" if not needed
 # maybe you want to use a dns server on your server e.g. 192.168.1.1
-dns = "192.168.11.1"
+dns = "172.16.10.254"
 
 # Set your vpn tunnel network (example is for 10.99.99.0/24)
-ipnet_tunnel_1 = 192
-ipnet_tunnel_2 = 168
-ipnet_tunnel_3 = 14
-ipnet_tunnel_4 = 128
-ipnet_tunnel_cidr = 25
+ipnet_tunnel_1 = 172
+ipnet_tunnel_2 = 16
+ipnet_tunnel_3 = 8
+ipnet_tunnel_4 = 0
+ipnet_tunnel_cidr = 24
 
 # Set allowed IPs (this should be the network of the server you want to access)
 # If you want to route all traffic over the VPN then set tunnel_0_0_0_0 = True, the network in allowed ips will then be ignored
-allowed_ips = "192.168.99.12/30, 192.168.11.0/24"
+allowed_ips = "192.168.24.0/24,172.16.1.0/24,172.16.8.0/24,172.16.9.0/24,172.16.10.0/24"
 tunnel_0_0_0_0 = False
 
 # If you need iptables rules then set iptables= "eth0" (replace eth0 with the name of your network card) or iptables = "" if no rules needed
@@ -78,7 +81,14 @@ def main():
                 f"PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -t nat -D POSTROUTING -o {iptables} -j MASQUERADE\n"
     # Generate config (the same server.conf file) in mikrotik command format
     else:
-        server_config = "/interface wireguard peers\n" \
+        server_config = "[Interface]\n" \
+            f"Address = {ipnet_tunnel_1}.{ipnet_tunnel_2}.{ipnet_tunnel_3}.{ipnet_tunnel_4+1}/{ipnet_tunnel_cidr}\n" \
+            f"ListenPort = {listen_port}\n" \
+            f"PrivateKey = {wg_priv_keys[0]}\n" 
+        if iptables:
+            server_config += f"PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -t nat -A POSTROUTING -o {iptables} -j MASQUERADE\n" \
+                f"PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -t nat -D POSTROUTING -o {iptables} -j MASQUERADE\n"
+        server_config += f"/interface wireguard peers\n" \
 
     for i in range(1, clients+1):
         if not mikrotik_server_config:
@@ -87,8 +97,8 @@ def main():
             f"PresharedKey = {wg_psk[i]}\n" \
             f"AllowedIPs = {ipnet_tunnel_1}.{ipnet_tunnel_2}.{ipnet_tunnel_3}.{ipnet_tunnel_4+1+i+ipnet_tunnel_4_start_ip}/32\n"
         else:
-          server_config += f"add allowed-address={ipnet_tunnel_1}.{ipnet_tunnel_2}.{ipnet_tunnel_3}.{ipnet_tunnel_4+1+i+ipnet_tunnel_4_start_ip}/32 " \
-            f"interface={mikrotik_server_wg_vpn_interface} public-key=\"{wg_pub_keys[i]}\" preshared-key=\"{wg_psk[i]}\" comment=\"[Peer {i}]\"\n"    
+          server_config += f"add allowed-address={ipnet_tunnel_1}.{ipnet_tunnel_2}.{ipnet_tunnel_3}.{ipnet_tunnel_4+1+i+ipnet_tunnel_4_start_ip}/32.{allowed_ips} " \
+            f"interface={mikrotik_server_wg_vpn_interface} public-key=\"{wg_pub_keys[i]}\" preshared-key=\"{wg_psk[i]}\" comment=\"{peer_name} - [Peer {i}]\"\n"    
     
     if mikrotik_server_config:
         print("*"*10 + f" Server-add-peers {i} " + "*"*10)
